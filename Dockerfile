@@ -5,11 +5,8 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy workspace configuration and all package.json files
-# This is required for pnpm workspaces to resolve dependencies correctly
-# for both the root package and the frontend package
+# Copy workspace configuration and package.json
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY frontend/package.json ./frontend/
 
 # Install pnpm using corepack (built into Node.js 22)
 RUN corepack enable && corepack prepare pnpm@latest --activate
