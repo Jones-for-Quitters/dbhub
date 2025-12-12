@@ -1,20 +1,21 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createExecuteSqlToolHandler } from "./execute-sql.js";
+import { FastMCP } from "fastmcp";
+import { z } from "zod";
+import { createExecuteSqlToolHandler, executeSqlSchema } from "./execute-sql.js";
 import { createSearchDatabaseObjectsToolHandler, searchDatabaseObjectsSchema } from "./search-objects.js";
 import { ConnectorManager } from "../connectors/manager.js";
 import { getExecuteSqlMetadata, getSearchObjectsMetadata } from "../utils/tool-metadata.js";
 import { isReadOnlySQL } from "../utils/allowed-keywords.js";
 import { createCustomToolHandler, buildZodSchemaFromParameters } from "./custom-tool-handler.js";
-import type { ToolConfig } from "../types/config.js";
+import type { ToolConfig, CustomToolConfig } from "../types/config.js";
 import { getToolRegistry } from "./registry.js";
 import { BUILTIN_TOOL_EXECUTE_SQL, BUILTIN_TOOL_SEARCH_OBJECTS } from "./builtin-tools.js";
 
 /**
- * Register all tool handlers with the MCP server
+ * Register all tool handlers with the FastMCP server
  * Iterates through all enabled tools from the registry and registers them
- * @param server - The MCP server instance
+ * @param server - The FastMCP server instance
  */
-export function registerTools(server: McpServer): void {
+export function registerTools(server: FastMCP): void {
   const sourceIds = ConnectorManager.getAvailableSourceIds();
 
   if (sourceIds.length === 0) {
@@ -38,7 +39,7 @@ export function registerTools(server: McpServer): void {
         registerSearchObjectsTool(server, sourceId, dbType, isDefault);
       } else {
         // Custom tool
-        registerCustomTool(server, toolConfig, dbType);
+        registerCustomTool(server, toolConfig as CustomToolConfig, dbType);
       }
     }
   }
@@ -48,76 +49,78 @@ export function registerTools(server: McpServer): void {
  * Register execute_sql tool for a source
  */
 function registerExecuteSqlTool(
-  server: McpServer,
+  server: FastMCP,
   sourceId: string,
-  dbType: string
+  _dbType: string
 ): void {
   const metadata = getExecuteSqlMetadata(sourceId);
-  server.registerTool(
-    metadata.name,
-    {
-      description: metadata.description,
-      inputSchema: metadata.schema,
-      annotations: metadata.annotations,
+  const handler = createExecuteSqlToolHandler(sourceId);
+
+  server.addTool({
+    name: metadata.name,
+    description: metadata.description,
+    parameters: z.object(executeSqlSchema),
+    annotations: metadata.annotations,
+    execute: async (args) => {
+      return handler(args, {});
     },
-    createExecuteSqlToolHandler(sourceId)
-  );
+  });
 }
 
 /**
  * Register search_objects tool for a source
  */
 function registerSearchObjectsTool(
-  server: McpServer,
+  server: FastMCP,
   sourceId: string,
   dbType: string,
   isDefault: boolean
 ): void {
   const metadata = getSearchObjectsMetadata(sourceId, dbType, isDefault);
+  const handler = createSearchDatabaseObjectsToolHandler(sourceId);
 
-  server.registerTool(
-    metadata.name,
-    {
-      description: metadata.description,
-      inputSchema: searchDatabaseObjectsSchema,
-      annotations: {
-        title: metadata.title,
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+  server.addTool({
+    name: metadata.name,
+    description: metadata.description,
+    parameters: z.object(searchDatabaseObjectsSchema),
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
     },
-    createSearchDatabaseObjectsToolHandler(sourceId)
-  );
+    execute: async (args) => {
+      return handler(args, {});
+    },
+  });
 }
 
 /**
  * Register a custom tool
  */
 function registerCustomTool(
-  server: McpServer,
-  toolConfig: ToolConfig,
+  server: FastMCP,
+  toolConfig: CustomToolConfig,
   dbType: string
 ): void {
-  const isReadOnly = isReadOnlySQL(toolConfig.statement!, dbType);
-  const zodSchema = buildZodSchemaFromParameters(toolConfig.parameters);
+  const isReadOnly = isReadOnlySQL(toolConfig.statement, dbType);
+  const zodSchemaShape = buildZodSchemaFromParameters(toolConfig.parameters);
+  const handler = createCustomToolHandler(toolConfig);
 
-  server.registerTool(
-    toolConfig.name,
-    {
-      description: toolConfig.description,
-      inputSchema: zodSchema,
-      annotations: {
-        title: `${toolConfig.name} (${dbType})`,
-        readOnlyHint: isReadOnly,
-        destructiveHint: !isReadOnly,
-        idempotentHint: isReadOnly,
-        openWorldHint: false,
-      },
+  server.addTool({
+    name: toolConfig.name,
+    description: toolConfig.description,
+    parameters: z.object(zodSchemaShape),
+    annotations: {
+      readOnlyHint: isReadOnly,
+      destructiveHint: !isReadOnly,
+      idempotentHint: isReadOnly,
+      openWorldHint: false,
     },
-    createCustomToolHandler(toolConfig)
-  );
+    execute: async (args) => {
+      return handler(args, {});
+    },
+  });
 
   console.error(`  - ${toolConfig.name} → ${toolConfig.source} (${dbType})`);
 }

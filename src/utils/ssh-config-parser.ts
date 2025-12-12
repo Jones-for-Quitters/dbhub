@@ -80,22 +80,31 @@ export function parseSSHConfig(
     // Extract SSH configuration parameters
     const sshConfig: Partial<SSHTunnelConfig> = {};
 
+    // Helper to extract first value from string | string[]
+    const getFirstValue = (value: string | string[] | undefined): string | undefined => {
+      if (value === undefined) return undefined;
+      return Array.isArray(value) ? value[0] : value;
+    };
+
     // Host (required)
-    if (hostConfig.HostName) {
-      sshConfig.host = hostConfig.HostName;
+    const hostName = getFirstValue(hostConfig.HostName);
+    if (hostName) {
+      sshConfig.host = hostName;
     } else {
       // If no HostName specified, use the host alias itself
       sshConfig.host = hostAlias;
     }
 
     // Port (optional, default will be 22)
-    if (hostConfig.Port) {
-      sshConfig.port = parseInt(hostConfig.Port, 10);
+    const port = getFirstValue(hostConfig.Port);
+    if (port) {
+      sshConfig.port = parseInt(port, 10);
     }
 
     // User (required)
-    if (hostConfig.User) {
-      sshConfig.username = hostConfig.User;
+    const user = getFirstValue(hostConfig.User);
+    if (user) {
+      sshConfig.username = user;
     }
 
     // IdentityFile (private key)

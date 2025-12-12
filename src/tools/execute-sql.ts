@@ -7,6 +7,7 @@ import { requestStore } from "../requests/index.js";
 import { getClientIdentifier } from "../utils/client-identifier.js";
 import { getToolRegistry } from "./registry.js";
 import { BUILTIN_TOOL_EXECUTE_SQL } from "./builtin-tools.js";
+import type { ExecuteSqlToolConfig } from "../types/config.js";
 
 // Schema for execute_sql tool
 export const executeSqlSchema = {
@@ -57,7 +58,7 @@ export function createExecuteSqlToolHandler(sourceId?: string) {
 
       // Get tool-specific configuration (tool is already registered, so it's enabled)
       const registry = getToolRegistry();
-      const toolConfig = registry.getBuiltinToolConfig(BUILTIN_TOOL_EXECUTE_SQL, actualSourceId);
+      const toolConfig = registry.getBuiltinToolConfig(BUILTIN_TOOL_EXECUTE_SQL, actualSourceId) as ExecuteSqlToolConfig | undefined;
 
       // Check if SQL is allowed based on readonly mode (per-tool)
       const isReadonly = toolConfig?.readonly === true;

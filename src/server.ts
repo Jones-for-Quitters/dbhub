@@ -1,7 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import express from "express";
+import { FastMCP } from "fastmcp";
+import { GoogleProvider } from "fastmcp/auth";
 import path from "path";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -11,8 +9,6 @@ import { ConnectorRegistry } from "./connectors/interface.js";
 import { resolveTransport, resolvePort, redactDSN, resolveSourceConfigs, isDemoMode } from "./config/env.js";
 import { buildDSNFromSource } from "./config/toml-loader.js";
 import { registerTools } from "./tools/index.js";
-import { listSources, getSource } from "./api/sources.js";
-import { listRequests } from "./api/requests.js";
 import { generateStartupTable, buildSourceDisplayInfo } from "./utils/startup-table.js";
 import { getToolsForSource } from "./utils/tool-metadata.js";
 
@@ -36,15 +32,39 @@ export function generateBanner(version: string, modes: string[] = []): string {
   const modeText = modes.length > 0 ? ` [${modes.join(' | ')}]` : '';
 
   return `
- _____  ____  _   _       _     
-|  __ \\|  _ \\| | | |     | |    
-| |  | | |_) | |_| |_   _| |__  
-| |  | |  _ <|  _  | | | | '_ \\ 
+ _____  ____  _   _       _
+|  __ \\|  _ \\| | | |     | |
+| |  | | |_) | |_| |_   _| |__
+| |  | |  _ <|  _  | | | | '_ \\
 | |__| | |_) | | | | |_| | |_) |
-|_____/|____/|_| |_|\\__,_|_.__/ 
-                                
+|_____/|____/|_| |_|\\__,_|_.__/
+
 v${version}${modeText} - Universal Database MCP Server
 `;
+}
+
+/**
+ * Resolve OAuth configuration from environment variables
+ */
+function resolveOAuthConfig(): {
+  enabled: boolean;
+  clientId?: string;
+  clientSecret?: string;
+  baseUrl?: string;
+} {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const baseUrl = process.env.OAUTH_BASE_URL;
+
+  // OAuth is enabled only if all required env vars are present
+  const enabled = !!(clientId && clientSecret && baseUrl);
+
+  return {
+    enabled,
+    clientId,
+    clientSecret,
+    baseUrl,
+  };
 }
 
 /**
@@ -117,7 +137,7 @@ See documentation for more details on configuring database connections.
         // Filter out built-in tools - custom tool registry only handles custom tools
         const customTools = sourceConfigsData.tools.filter(
           (tool) => !(BUILTIN_TOOLS as readonly string[]).includes(tool.name)
-        );
+        ) as import("./types/config.js").CustomToolConfig[];
 
         if (customTools.length > 0) {
           customToolRegistry.initialize(customTools);
@@ -126,26 +146,15 @@ See documentation for more details on configuring database connections.
       }
     }
 
-    // Create MCP server factory function for HTTP transport
-    // Note: This must be created AFTER ConnectorManager is initialized
-    const createServer = () => {
-      const server = new McpServer({
-        name: SERVER_NAME,
-        version: SERVER_VERSION,
-      });
-
-      // Register tools (both built-in and custom)
-      // Custom tools are already initialized in customToolRegistry by the code above
-      registerTools(server);
-
-      return server;
-    };
-
-    // Resolve transport type (for MCP server)
+    // Resolve transport type
     const transportData = resolveTransport();
+    const transportType = transportData.type;
 
     // Resolve port for HTTP server (only needed for http transport)
-    const port = transportData.type === "http" ? resolvePort().port : null;
+    const port = transportType === "http" ? resolvePort().port : 8080;
+
+    // Resolve OAuth configuration
+    const oauthConfig = resolveOAuthConfig();
 
     // Print ASCII art banner with version and slogan
     // Collect active modes
@@ -156,6 +165,11 @@ See documentation for more details on configuring database connections.
     if (isDemo) {
       activeModes.push("DEMO");
       modeDescriptions.push("using sample employee database");
+    }
+
+    if (transportType === "http" && oauthConfig.enabled) {
+      activeModes.push("OAuth");
+      modeDescriptions.push("Google OAuth 2.1 enabled");
     }
 
     // Output mode information
@@ -173,113 +187,58 @@ See documentation for more details on configuring database connections.
     );
     console.error(generateStartupTable(sourceDisplayInfos));
 
-    // Set up transport-specific server
-    if (transportData.type === "http") {
-      // HTTP transport: Start Express server with MCP endpoint and admin console
-      const app = express();
+    // Create FastMCP server with OAuth for HTTP transport
+    let oauthProxy: GoogleProvider | undefined;
 
-      // Enable JSON parsing
-      app.use(express.json());
-
-      // Handle CORS and security headers
-      app.use((req, res, next) => {
-        // Validate Origin header to prevent DNS rebinding attacks
-        const origin = req.headers.origin;
-        if (origin && !origin.startsWith('http://localhost') && !origin.startsWith('https://localhost')) {
-          return res.status(403).json({ error: 'Forbidden origin' });
-        }
-
-        res.header('Access-Control-Allow-Origin', origin || 'http://localhost');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id');
-        res.header('Access-Control-Allow-Credentials', 'true');
-
-        if (req.method === 'OPTIONS') {
-          return res.sendStatus(200);
-        }
-        next();
-      });
-
-      // Serve static frontend files
-      const frontendPath = path.join(__dirname, "public");
-      app.use(express.static(frontendPath));
-
-      // Health check endpoint
-      app.get("/healthz", (req, res) => {
-        res.status(200).send("OK");
-      });
-
-      // Data sources API endpoints
-      app.get("/api/sources", listSources);
-      app.get("/api/sources/:sourceId", getSource);
-      app.get("/api/requests", listRequests);
-
-      // Main endpoint for streamable HTTP transport
-      // SSE streaming (GET requests) is not supported in stateless mode
-      // Return 405 Method Not Allowed for GET requests to indicate this
-      app.get("/mcp", (req, res) => {
-        res.status(405).json({
-          error: 'Method Not Allowed',
-          message: 'SSE streaming is not supported in stateless mode. Use POST requests with JSON responses.'
-        });
-      });
-
-      app.post("/mcp", async (req, res) => {
-        try {
-          // In stateless mode, create a new instance of transport and server for each request
-          // to ensure complete isolation. A single instance would cause request ID collisions
-          // when multiple clients connect concurrently.
-          const transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: undefined, // Disable session management for stateless mode
-            enableJsonResponse: true // Use JSON responses (SSE not supported in stateless mode)
-          });
-          const server = createServer();
-
-          await server.connect(transport);
-          await transport.handleRequest(req, res, req.body);
-        } catch (error) {
-          console.error("Error handling request:", error);
-          if (!res.headersSent) {
-            res.status(500).json({ error: 'Internal server error' });
-          }
-        }
-      });
-
-      // SPA fallback - serve index.html for all non-API routes (production only)
-      // In development, the frontend is served by Vite dev server
-      if (process.env.NODE_ENV !== 'development') {
-        app.get("*", (req, res) => {
-          res.sendFile(path.join(frontendPath, "index.html"));
-        });
-      }
-
-      // Start the HTTP server
-      app.listen(port, '0.0.0.0', () => {
-        // In development mode, suggest using the Vite dev server for hot reloading
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Development mode detected!');
-          console.error('   Admin console dev server (with HMR): http://localhost:5173');
-          console.error('   Backend API: http://localhost:8080');
-          console.error('');
-        } else {
-          console.error(`Admin console at http://0.0.0.0:${port}/`);
-        }
-        console.error(`MCP server endpoint at http://0.0.0.0:${port}/mcp`);
-      });
-    } else {
-      // STDIO transport: Pure MCP-over-stdio, no HTTP server
-      const server = createServer();
-      const transport = new StdioServerTransport();
-      await server.connect(transport);
-      console.error("MCP server running on stdio");
-
-      // Listen for SIGINT to gracefully shut down
-      process.on("SIGINT", async () => {
-        console.error("Shutting down...");
-        await transport.close();
-        process.exit(0);
+    if (transportType === "http" && oauthConfig.enabled) {
+      oauthProxy = new GoogleProvider({
+        clientId: oauthConfig.clientId!,
+        clientSecret: oauthConfig.clientSecret!,
+        baseUrl: oauthConfig.baseUrl!,
+        scopes: ["openid", "profile", "email"],
       });
     }
+
+    const server = new FastMCP({
+      name: SERVER_NAME,
+      version: SERVER_VERSION as `${number}.${number}.${number}`,
+      oauth: (transportType === "http" && oauthProxy) ? {
+        enabled: true,
+        authorizationServer: oauthProxy.getAuthorizationServerMetadata(),
+        proxy: oauthProxy,
+      } : undefined,
+    });
+
+    // Register tools with FastMCP
+    registerTools(server);
+
+    // Start with appropriate transport
+    if (transportType === "http") {
+      await server.start({
+        transportType: "httpStream",
+        httpStream: {
+          port,
+          stateless: true,
+          host: "0.0.0.0",
+        },
+      });
+
+      if (oauthConfig.enabled) {
+        console.error(`OAuth endpoints available at http://0.0.0.0:${port}/oauth/*`);
+      }
+      console.error(`MCP server endpoint at http://0.0.0.0:${port}/mcp`);
+    } else {
+      // STDIO transport: Pure MCP-over-stdio
+      await server.start({ transportType: "stdio" });
+      console.error("MCP server running on stdio");
+    }
+
+    // Listen for SIGINT to gracefully shut down
+    process.on("SIGINT", async () => {
+      console.error("Shutting down...");
+      await server.stop();
+      process.exit(0);
+    });
   } catch (err) {
     console.error("Fatal error:", err);
     process.exit(1);

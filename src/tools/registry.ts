@@ -21,7 +21,7 @@ export class ToolRegistry {
    * Check if a tool name is a built-in tool
    */
   private isBuiltinTool(toolName: string): boolean {
-    return BUILTIN_TOOLS.includes(toolName);
+    return (BUILTIN_TOOLS as readonly string[]).includes(toolName);
   }
 
   /**

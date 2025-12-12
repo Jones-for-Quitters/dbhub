@@ -83,7 +83,7 @@ export class SSHTunnel {
               localSocket.pipe(stream).pipe(localSocket);
 
               // Handle stream errors
-              stream.on('error', (err) => {
+              stream.on('error', (err: Error) => {
                 console.error('SSH stream error:', err);
                 localSocket.end();
               });

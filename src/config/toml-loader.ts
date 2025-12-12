@@ -176,16 +176,19 @@ function validateToolsConfig(
     const isBuiltin = (BUILTIN_TOOLS as readonly string[]).includes(tool.name);
     const isExecuteSql = tool.name === BUILTIN_TOOL_EXECUTE_SQL;
 
+    // Use type assertion for validation since we're checking for presence of optional fields
+    const toolAny = tool as any;
+
     if (isBuiltin) {
       // Built-in tools should NOT have custom tool fields
-      if (tool.description || tool.statement || tool.parameters) {
+      if (toolAny.description || toolAny.statement || toolAny.parameters) {
         throw new Error(
           `Configuration file ${configPath}: built-in tool '${tool.name}' cannot have description, statement, or parameters fields`
         );
       }
 
       // Only execute_sql can have readonly and max_rows
-      if (!isExecuteSql && (tool.readonly !== undefined || tool.max_rows !== undefined)) {
+      if (!isExecuteSql && (toolAny.readonly !== undefined || toolAny.max_rows !== undefined)) {
         throw new Error(
           `Configuration file ${configPath}: tool '${tool.name}' cannot have readonly or max_rows fields ` +
             `(these are only valid for ${BUILTIN_TOOL_EXECUTE_SQL} tool)`
@@ -193,14 +196,14 @@ function validateToolsConfig(
       }
     } else {
       // Custom tools MUST have description and statement
-      if (!tool.description || !tool.statement) {
+      if (!toolAny.description || !toolAny.statement) {
         throw new Error(
           `Configuration file ${configPath}: custom tool '${tool.name}' must have 'description' and 'statement' fields`
         );
       }
 
       // Custom tools should NOT have builtin-specific fields
-      if (tool.readonly !== undefined || tool.max_rows !== undefined) {
+      if (toolAny.readonly !== undefined || toolAny.max_rows !== undefined) {
         throw new Error(
           `Configuration file ${configPath}: custom tool '${tool.name}' cannot have readonly or max_rows fields ` +
             `(these are only valid for ${BUILTIN_TOOL_EXECUTE_SQL} tool)`
@@ -209,8 +212,8 @@ function validateToolsConfig(
     }
 
     // Validate max_rows if provided (only for execute_sql)
-    if (tool.max_rows !== undefined) {
-      if (typeof tool.max_rows !== "number" || tool.max_rows <= 0) {
+    if (toolAny.max_rows !== undefined) {
+      if (typeof toolAny.max_rows !== "number" || toolAny.max_rows <= 0) {
         throw new Error(
           `Configuration file ${configPath}: tool '${tool.name}' has invalid max_rows. Must be a positive integer.`
         );

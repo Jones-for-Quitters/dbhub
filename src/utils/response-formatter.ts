@@ -54,13 +54,25 @@ export function formatErrorResponse(
 }
 
 /**
+ * Tool response content type
+ */
+export interface ToolResponse {
+  content: Array<{
+    type: "text";
+    text: string;
+    mimeType: string;
+  }>;
+  isError?: boolean;
+}
+
+/**
  * Create a tool error response object
  */
-export function createToolErrorResponse(error: string, code: string = "ERROR", details?: any) {
+export function createToolErrorResponse(error: string, code: string = "ERROR", details?: any): ToolResponse {
   return {
     content: [
       {
-        type: "text" as const,
+        type: "text",
         text: JSON.stringify(formatErrorResponse(error, code, details), bigIntReplacer, 2),
         mimeType: "application/json",
       },
@@ -72,11 +84,11 @@ export function createToolErrorResponse(error: string, code: string = "ERROR", d
 /**
  * Create a tool success response object
  */
-export function createToolSuccessResponse<T>(data: T, meta: Record<string, any> = {}) {
+export function createToolSuccessResponse<T>(data: T, meta: Record<string, any> = {}): ToolResponse {
   return {
     content: [
       {
-        type: "text" as const,
+        type: "text",
         text: JSON.stringify(formatSuccessResponse(data, meta), bigIntReplacer, 2),
         mimeType: "application/json",
       },

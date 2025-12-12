@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import { ToolConfig, ParameterConfig } from "../types/config.js";
+import { CustomToolConfig, ParameterConfig } from "../types/config.js";
 import { ConnectorManager } from "../connectors/manager.js";
 import {
   createToolSuccessResponse,
@@ -150,7 +150,7 @@ export function buildInputSchema(parameters: ParameterConfig[] | undefined): {
  * @param toolConfig Tool configuration from TOML
  * @returns Handler function compatible with MCP server.registerTool
  */
-export function createCustomToolHandler(toolConfig: ToolConfig) {
+export function createCustomToolHandler(toolConfig: CustomToolConfig) {
   // Build Zod schema shape for MCP registration
   const zodSchemaShape = buildZodSchemaFromParameters(toolConfig.parameters);
   // Wrap in z.object() for validation

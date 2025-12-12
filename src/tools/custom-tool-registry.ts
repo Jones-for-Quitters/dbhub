@@ -3,7 +3,7 @@
  * Loads, validates, and provides access to custom tool definitions from TOML config
  */
 
-import { ToolConfig } from "../types/config.js";
+import { CustomToolConfig } from "../types/config.js";
 import { ConnectorManager } from "../connectors/manager.js";
 import { validateParameters } from "../utils/parameter-mapper.js";
 import { BUILTIN_TOOLS } from "./builtin-tools.js";
@@ -12,7 +12,7 @@ import { BUILTIN_TOOLS } from "./builtin-tools.js";
  * Global registry of custom tools loaded from TOML configuration
  */
 class CustomToolRegistry {
-  private tools: ToolConfig[] = [];
+  private tools: CustomToolConfig[] = [];
   private initialized = false;
 
   /**
@@ -20,7 +20,7 @@ class CustomToolRegistry {
    * @param toolConfigs Tool definitions from TOML config
    * @throws Error if validation fails
    */
-  public initialize(toolConfigs: ToolConfig[] | undefined): void {
+  public initialize(toolConfigs: CustomToolConfig[] | undefined): void {
     if (this.initialized) {
       throw new Error("CustomToolRegistry already initialized");
     }
@@ -45,7 +45,7 @@ class CustomToolRegistry {
    * @param toolConfig Tool configuration to validate
    * @throws Error if validation fails
    */
-  private validateAndRegister(toolConfig: ToolConfig): void {
+  private validateAndRegister(toolConfig: CustomToolConfig): void {
     // 1. Validate required fields
     if (!toolConfig.name || toolConfig.name.trim() === "") {
       throw new Error("Tool definition missing required field: name");
@@ -186,7 +186,7 @@ class CustomToolRegistry {
    * Get all registered custom tools
    * @returns Array of tool configurations
    */
-  public getTools(): ToolConfig[] {
+  public getTools(): CustomToolConfig[] {
     return [...this.tools];
   }
 
@@ -195,7 +195,7 @@ class CustomToolRegistry {
    * @param name Tool name
    * @returns Tool configuration or undefined if not found
    */
-  public getTool(name: string): ToolConfig | undefined {
+  public getTool(name: string): CustomToolConfig | undefined {
     return this.tools.find((t) => t.name === name);
   }
 
