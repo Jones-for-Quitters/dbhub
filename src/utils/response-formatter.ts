@@ -60,7 +60,6 @@ export interface ToolResponse {
   content: Array<{
     type: "text";
     text: string;
-    mimeType: string;
   }>;
   isError?: boolean;
 }
@@ -74,7 +73,6 @@ export function createToolErrorResponse(error: string, code: string = "ERROR", d
       {
         type: "text",
         text: JSON.stringify(formatErrorResponse(error, code, details), bigIntReplacer, 2),
-        mimeType: "application/json",
       },
     ],
     isError: true,
@@ -90,7 +88,6 @@ export function createToolSuccessResponse<T>(data: T, meta: Record<string, any> 
       {
         type: "text",
         text: JSON.stringify(formatSuccessResponse(data, meta), bigIntReplacer, 2),
-        mimeType: "application/json",
       },
     ],
   };

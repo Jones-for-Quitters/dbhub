@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dbhub": {
+      "type": "http",
+      "url": "https://prophetic-loxodromic-gus.ngrok-free.dev/mcp"
+    }
+  }
+}
